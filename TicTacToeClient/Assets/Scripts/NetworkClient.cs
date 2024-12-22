@@ -1,5 +1,6 @@
 using LiteNetLib;
 using LiteNetLib.Utils;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Net;
@@ -13,8 +14,10 @@ public class NetworkClient : MonoBehaviour, INetEventListener
 
     public static NetworkClient Instance { get { return _instance; } }
 
+    public event Action OnServerConnected;
+
     NetManager _netManager;
-    NetPeer _server;
+    NetPeer _server;        // NetPeer: 특정 peer에게 메시지를 보내는 역할 (공식문서), 여기서는 서버를 의미함
     NetDataWriter _writer;
 
     void Awake()
@@ -50,15 +53,20 @@ public class NetworkClient : MonoBehaviour, INetEventListener
         _netManager.Start();
     }
 
-    public void Connect()
+    public void Connect() // 서버에 연결
     {
         _netManager.Connect("localhost", 9050, "");
     }
 
-    public void SendServer(string data)
+    // 서버로 송신
+    public void SendServer<T>(T packet, DeliveryMethod deliveryMethod = DeliveryMethod.ReliableOrdered) where T : INetSerializable
     {
-        var bytes = Encoding.UTF8.GetBytes(data);
-        _server.Send(bytes, DeliveryMethod.ReliableOrdered);
+        if(_server == null)
+            return;
+
+        _writer.Reset();
+        packet.Serialize(_writer);
+        _server.Send(_writer, deliveryMethod);
     }
 
     public void OnConnectionRequest(ConnectionRequest request)
@@ -73,7 +81,7 @@ public class NetworkClient : MonoBehaviour, INetEventListener
     {
     }
 
-    public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod)
+    public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod deliveryMethod) // 서버로부터 수신
     {
         var data = Encoding.UTF8.GetString(reader.RawData).Replace("\0", "");
         Debug.Log($"Data received from server: {data}");
@@ -84,10 +92,12 @@ public class NetworkClient : MonoBehaviour, INetEventListener
         throw new System.NotImplementedException();
     }
 
-    public void OnPeerConnected(NetPeer peer)
+    // 클라이언트 또는 서버가 다른 NetPeer와 성공적으로 연결되었을 때 호출되는 콜백 메서드, 여기서는 서버에 연결될 때 호출됨
+    public void OnPeerConnected(NetPeer peer) 
     {
         Debug.Log("We connected to server at " + peer.EndPoint);
         _server = peer;
+        OnServerConnected?.Invoke();
     }
 
     public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
